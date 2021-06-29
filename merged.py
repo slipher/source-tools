@@ -30,5 +30,14 @@ def CheckMerged(feature_branch, base_branch):
         print('%-12s %s' % (where, message))
 
 if __name__ == '__main__':
-    _, feature, base = sys.argv
+    if len(sys.argv) == 2:
+        base = 'origin/master'
+    elif len(sys.argv) == 3:
+        base = sys.argv[2]
+    else:
+        exit('Usage: merged.py <feature branch> [<base branch>]\n\n'
+             'Checks whether differing commits on <feature branch> have been rebased\n'
+             'onto <base branch> (default: origin/master) using the heuristic of one-line\n'
+             'summary comparison')
+    feature = sys.argv[1]
     CheckMerged(feature, base)
