@@ -1,4 +1,7 @@
 #!/bin/bash
+
+WSD_FORMAT=${WSD_FORMAT:-clang-format}
+
 if [[ -z $GIT_DIFF_PATH_COUNTER ]]; then
     # GIT_DIFF_PATH_COUNTER not defined: the script acts as a replacement for 'git diff'
     GIT_EXTERNAL_DIFF=$0 exec git diff $*
@@ -30,7 +33,7 @@ run_diff() {
 }
 
 if [[ $4 != . && ($1 == *.h || $1 == *.c || $1 == *.cpp) ]]; then
-    run_diff <(clang-format.bat "$2") <(clang-format.bat "$5")
+    run_diff <("$WSD_FORMAT" "$2") <("$WSD_FORMAT" "$5")
 else
     run_diff "$2" "$5"
 fi
