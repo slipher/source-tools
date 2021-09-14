@@ -3,7 +3,7 @@
 import subprocess
 import sys
 
-MAX_COMMITS = 30
+MAX_COMMITS = 90
 
 def CommitsBetween(feature_branch, base_branch):
     output = subprocess.check_output(
@@ -15,7 +15,8 @@ def CommitsBetween(feature_branch, base_branch):
 
 def SearchCommits(commits, branch):
     not_found = set(commits)
-    assert len(not_found) == len(commits)
+    if len(not_found) != len(commits):
+        print('Warning: identical commit descriptions found')
     found = [None] * len(commits)
     branch_onelines = subprocess.check_output(['git', 'log', '--format=%s', branch]).splitlines()
     for i, message in enumerate(branch_onelines):
