@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import os
 
 UNV = 'C:/unv/Unvanquished'
