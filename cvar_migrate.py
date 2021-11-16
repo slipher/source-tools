@@ -20,10 +20,14 @@ import re
 import subprocess
 import sys
 import tempfile
+import traceback
 
 import colorama
 from clang import cindex
 from clang.cindex import CursorKind
+
+Y = colorama.Fore.YELLOW
+R = colorama.Fore.RESET
 
 sys.stdout.reconfigure(encoding='utf-8')
 colorama.init()
@@ -32,9 +36,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-b', type=str, help='build directory (with comp db)', default='C:/unv/st/spm')
 parser.add_argument('-f', type=str, help='substring to match translation unit filename', default='')
 parser.add_argument('-j', type=int, help='compiler threads', default=6)
-parser.add_argument('-v', type=str, help='prefix for cvars to match', default='')
+parser.add_argument('-v', type=str, help='substring for cvars to match', default='')
 parser.add_argument('-T', action='store_false', help='disable text matches')
 parser.add_argument('-p', action='store_true', help='interactively apply patches')
+parser.add_argument('-m', action='store_true', help='migrate cvar instead of deleting unused')
 argv = parser.parse_args()
 argv.v = argv.v.lower()
 editor = os.getenv('EDITOR', 'C:/Program Files/Git/usr/bin/vim.exe')
@@ -52,13 +57,15 @@ class CvarLocs:
         self.int = set()
         self.float = set()
         self.string = set()
+        self.cvarsets = set()
         self.other = set()
 
         self.name = set()
         self.flags = []
+        self.default = set()
 
     def groups(self): # excluding text
-        return [self.fw_decls, self.defs, self.int, self.float, self.string, self.other]
+        return [self.fw_decls, self.defs, self.int, self.float, self.string, self.cvarsets, self.other]
 
     def allgroups(self):
         return self.groups() + [self.table, self.text]
@@ -146,10 +153,37 @@ def handle_table(cur):
             locs.name.add(m.group(1))
         elif field == 'cvarFlags':
             locs.flags.extend(map(str.strip, get_source(value).split('|')))
+        elif field == 'defaultString':
+            locs.default.add(get_source(value))
+
+def get_kind(cur):
+    try:
+        return cur.kind
+    except ValueError:
+        return None
+
+cvarsets = collections.defaultdict(set)
+def handle_cvar_set(cur):
+    _, var, val = cur.get_children()
+    if var.kind == CursorKind.UNEXPOSED_EXPR:
+        var = next(iter(var.get_children()))
+    if var.kind != CursorKind.STRING_LITERAL:
+        return
+    loc = list(my_loc(var))
+    loc[2] += 1
+    cvarsets[get_source(var).strip('"').lower()].add((tuple(loc), get_source(val)))
 
 def f(cur, p=None):
     if cur.type.spelling.endswith('::cvarTable_t') and cur.kind == CursorKind.INIT_LIST_EXPR:
         handle_table(cur)
+    if get_kind(cur) == CursorKind.CALL_EXPR:
+        try:
+            func_tokens = list(next(iter(cur.get_children())).get_tokens())
+        except StopIteration:
+            pass
+        else:
+            if len(func_tokens) == 1 and func_tokens[0].spelling == 'trap_Cvar_Set':
+                handle_cvar_set(cur)
     if re.search(r'\b(cvar_t|vmCvar_t)\b', cur.type.spelling):
         if not cur.location.file:
             print('wat', cur.kind, cur.type.spelling)
@@ -225,7 +259,7 @@ def all_sources(srcs):
     for f in srcs:
         root = f[:f.rindex('src/')]
         src_dirs.add(root + 'src')
-        if os.path.exists(root + 'pkg'):
+        if (not argv.m) and os.path.exists(root + 'pkg'):
             src_dirs.add(root + 'pkg/unvanquished_src.dpkdir/ui')
     all_srcs = []
     for d in src_dirs:
@@ -239,20 +273,24 @@ def all_sources(srcs):
 WORD = re.compile(r'\b\w+\b')
 all_srcs = all_sources(files)
 
+
+locmap_text = {var.lower(): locs for var, locs in locmap.items()}
+assert len(locmap_text) == len(locmap)
+for locs in locmap.values():
+    for name in map(str.lower, locs.name):
+        if name not in locmap_text:
+            locmap_text[name] = locs
+for name, locs in locmap_text.items():
+    for loc, _ in cvarsets[name]:
+        locs.cvarsets.add(loc)
 if argv.T:
-    locmap_text = {var.lower(): locs for var, locs in locmap.items()}
-    assert len(locmap_text) == len(locmap)
-    for locs in locmap.values():
-        for name in map(str.lower, locs.name):
-            if name not in locmap_text:
-                locmap_text[name] = locs
     for src in all_srcs:
         for n, line in enumerate(get_file(src)):
             for m in re.finditer(WORD, line):
                 locs = locmap_text.get(m.group(0).lower())
                 if locs:
                     loc = (src, n + 1, m.start() + 1)
-                    if not any(loc in g for g in locs.groups()):
+                    if not any(l[:2] == loc[:2] for g in locs.groups() for l in g):
                         locs.text.add(loc)
 
 class Patch:
@@ -269,16 +307,41 @@ class Patch:
     def disk_text(self, f):
         return get_file(f, cache=not argv.p)[:]
 
-    def kill_line(self, f, orig_line):
+    def find_line(self, f, orig_line):
         orig_text = get_file(f)
         if f not in self.files:
             self.files[f] = self.disk_text(f)[:]
         text = self.files[f]
         content = orig_text[orig_line - 1]
-        i = text.index(content)
+        try:
+            i = text.index(content)
+        except ValueError:
+            return None
         if text.count(content) > 1:
             print(f'Warning: found multiple lines matching {repr(content)}, deleting one at random')
+        return i
+
+    def kill_line(self, f, orig_line):
+        i = self.find_line(f, orig_line)
+        if i is None:
+            print('Warning: failed to delete line ' + repr(orig_line))
+            return
+        text = self.files[f]
         del text[i:i + 1 + self.whitespace_around(text, i)]
+
+    def replace_line(self, f, orig_line, replacement):
+        i = self.find_line(f, orig_line)
+        if i is None:
+            print('Warning: failed to replace line ' + repr(orig_line))
+            return
+        self.files[f][i] = replacement
+
+    def mark_line(self, f, orig_line):
+        i = self.find_line(f, orig_line)
+        if i is None:
+            print('Warning: failed to replace line ' + repr(orig_line))
+            return
+        self.files[f][i] = '\uBEEF'
 
     def color_diff_line(self, line):
         if line.startswith('+++') or line.startswith('---'):
@@ -289,14 +352,24 @@ class Patch:
             return colorama.Fore.RED + line + colorama.Fore.RESET
         if line.startswith('@'):
             return colorama.Fore.CYAN + line + colorama.Fore.RESET
+        if line.startswith('*'):
+            return colorama.Style.BRIGHT + line + colorama.Style.NORMAL
         return line
 
     def show(self, file=None):
         for f, text in self.files.items():
-            for line in difflib.unified_diff(self.disk_text(f), text, f, f, n=self.context, lineterm=''):
+            diff = list(difflib.unified_diff(self.disk_text(f), text, f, f, n=self.context, lineterm=''))
+            i = 0
+            while i < len(diff):
+                line = diff[i]
+                # won't work if there is more than 1 marked line in a block
+                if line.startswith('-') and diff[i+1] == '+\uBEEF':
+                    line = '*' + line[1:]
+                    i += 1
                 if not file:
                     line = self.color_diff_line(line)
                 print(line, file=file)
+                i += 1
 
     def apply(self, edit):
         tf = tempfile.NamedTemporaryFile('w', delete=False, encoding='utf8')
@@ -311,8 +384,6 @@ class Patch:
             os.unlink(tf.name)
 
 def apply_patch(patch):
-    Y = colorama.Fore.YELLOW
-    R = colorama.Fore.RESET
     while True:
         patch.show()
         print(f'{Y}Apply patch?{R} [{Y}y{R}es, {Y}n{R}o, {Y}c{R}ontext++, {Y}e{R}dit]')
@@ -351,10 +422,116 @@ def kill_cvar(locs):
     else:
         patch.show()
 
+def translate_flags(flags):
+    FLAGS = {
+        '0': 'Cvar::NONE',
+        'CVAR_LATCH': 'Cvar::LATCH',
+        'CVAR_CHEAT': 'Cvar::CHEAT',
+        'CVAR_USERINFO': 'Cvar::USERINFO',
+        'CVAR_SERVERINFO': 'Cvar::SERVERINFO',
+    }
+    return ' | '.join(FLAGS.get(flag, f'<CVARTODO: {flag}>') for flag in flags)
+
+# g_foo.x, locs.x, Cvar<x>
+FLOAT = 'value', 'float', 'Cvar<float>'
+INT = 'integer', 'int', 'Cvar<int>'
+INTRANGE = 'integer', 'int', 'Range<Cvar::Cvar<int>>'
+BOOL = 'integer', 'int', 'Cvar<bool>'
+STRING = 'string', 'string', 'Cvar<std::string>'
+
+def guess_type(locs):
+    if locs.float:
+        return FLOAT
+    if locs.int:
+        return INT
+    return STRING
+
+def destringize(val, type):
+    if type is not STRING:
+        val = val.strip('"')
+        if type is BOOL:
+            val = str(bool(int(val))).lower()
+    return val
+
+def migration_patch(name, locs, type, desc, limits):
+    accessor, grp, newtype = type
+    group = getattr(locs, grp)
+    patch = Patch()
+    for f, line, _ in locs.table:
+        patch.kill_line(f, line)
+    for f, line, _ in locs.fw_decls:
+        patch.replace_line(f, line, f'extern Cvar::{newtype} {name};')
+    for f, line, _ in locs.defs:
+        name2, = locs.name
+        default, = locs.default
+        default = destringize(default, type)
+        for n in limits:
+            default += f', {n}'
+        defn = f'Cvar::{newtype} {name}("{name2}", "{desc}", {translate_flags(locs.flags)}, {default});'
+        patch.replace_line(f, line, defn)
+    for (f, line, _), val in cvarsets[name2.lower()]:
+        oldtext = get_file(f)[line-1]
+        indent = oldtext[:len(oldtext) - len(oldtext.lstrip())]
+        patch.replace_line(f, line, f'{indent}{name2}.Set({destringize(val, type)});')
+    get_expr = name + '.Get()'
+    if type is STRING:
+        get_expr += '.c_str()'
+    for f, line in {loc[:2] for loc in group}:
+        patch.replace_line(f, line, get_file(f)[line-1].replace(f'{name}.{accessor}', get_expr))
+    lines = {loc[:2] for g in locs.allgroups() if g is not group and g is not locs.fw_decls and g is not locs.defs and g is not locs.table and g is not locs.cvarsets for loc in g}
+    for f, line in lines:
+        patch.mark_line(f, line)
+    return patch
+
+def read_type():
+    while True:
+        print(f'Choose cvar type [{Y}f{R}loat, {Y}i{R}nt, {Y}r{R}ange int, {Y}b{R}ool, {Y}s{R}tring]')
+        choice = input().lower()
+        if choice == 'f':
+            return FLOAT
+        if choice == 'i':
+            return INT
+        if choice == 'r':
+            return INTRANGE
+        if choice == 'b':
+            return BOOL
+        if choice == 's':
+            return STRING
+
+def migrate_cvar(name, locs):
+    type = guess_type(locs)
+    if not locs.name or not locs.default:
+        print(name + ' is missing stuff')
+        return
+    patch = migration_patch(name, locs, type, 'CVARTODO:desc', ())
+    patch.show()
+    if not argv.p:
+        return
+    limits = ()
+    while True:
+        print(f'migrate {name}? [{Y}y{R}es, {Y}n{R}o, change {Y}t{R}ype]')
+        choice = input().lower()
+        if choice == 'n':
+            return
+        elif choice == 'y':
+            break
+        elif choice == 't':
+            type = read_type()
+            if type is INTRANGE:
+                limits = input('Min: '), input('Max: ')
+            else:
+                limits = ()
+    desc = input('Description: ')
+    try:
+        patch = migration_patch(name, locs, type, desc, limits)
+        apply_patch(patch)
+    except Exception:
+        traceback.print_exc()
+
 os.chdir('/') # so I can use absolute paths in patches
 
 for name, locs in locmap.items():
-    if not name.lower().startswith(argv.v):
+    if argv.v not in name.lower():
         continue
     include = False
     for g in locs.groups():
@@ -380,10 +557,15 @@ for name, locs in locmap.items():
         P('STR ')
     for loc in locs.table:
         P('TAB ')
+    for loc in locs.cvarsets:
+        P('SET ')
     for loc in locs.other:
         P('OTHER')
     for loc in locs.text:
         P('TEXT')
-    if not check_usage(locs):
-        kill_cvar(locs)
+    if argv.m:
+        migrate_cvar(name, locs)
+    else:
+        if not check_usage(locs):
+            kill_cvar(locs)
     print()
