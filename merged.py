@@ -25,22 +25,34 @@ def SearchCommits(commits, branch):
             not_found.remove(message)
     return found
 
-def CheckMerged(feature_branch, base_branch):
+def CheckMerged(feature_branch, base_branch, autodelete):
     commits = CommitsBetween(feature_branch, base_branch)
     indices = SearchCommits(commits, base_branch)
+    differs = False
     for message, index in zip(commits, indices):
-        where = 'not found' if index is None else '~%d' % index
+        if index is None:
+            differs = True
+            where = 'not found'
+        else:
+            where = '~%d' % index
         print('%-12s %s' % (where, message))
+    if autodelete and not differs:
+        flag = '-D' if commits else '-d'
+        subprocess.check_call(['git', 'branch', flag, feature_branch])
 
 if __name__ == '__main__':
-    if len(sys.argv) == 2:
+    argv = sys.argv.copy()
+    autodelete = '-d' in argv
+    if autodelete:
+        argv.remove('-d')
+    if len(argv) == 2:
         base = 'origin/master'
-    elif len(sys.argv) == 3:
-        base = sys.argv[2]
+    elif len(argv) == 3:
+        base = argv[2]
     else:
-        exit('Usage: merged.py <feature branch> [<base branch>]\n\n'
+        exit('Usage: merged.py [-d] <feature branch> [<base branch>]\n\n'
              'Checks whether differing commits on <feature branch> have been rebased\n'
              'onto <base branch> (default: origin/master) using the heuristic of one-line\n'
-             'summary comparison')
-    feature = sys.argv[1]
-    CheckMerged(feature, base)
+             'summary comparison. -d deletes the branch if there are no differing commits.')
+    feature = argv[1]
+    CheckMerged(feature, base, autodelete)
