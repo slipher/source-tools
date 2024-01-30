@@ -21,8 +21,8 @@ entdir = defaultdict(list)
 for pak in paks:
     try:
         z = zipfile.ZipFile(pak)
-    except zipfile.BadZipFile:
-        log('Bad zip header in', pak)
+    except (zipfile.BadZipFile, FileNotFoundError):
+        log("Couldn't open", pak)
         continue
     for name in z.namelist():
         m = re.fullmatch(r'maps/([^/\\]+)[.]bsp', name, re.IGNORECASE)
