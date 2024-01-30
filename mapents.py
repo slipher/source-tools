@@ -19,14 +19,22 @@ log('Searching', len(paks), 'paks')
 
 entdir = defaultdict(list)
 for pak in paks:
-    z = zipfile.ZipFile(pak)
+    try:
+        z = zipfile.ZipFile(pak)
+    except zipfile.BadZipFile:
+        log('Bad zip header in', pak)
+        continue
     for name in z.namelist():
         m = re.fullmatch(r'maps/([^/\\]+)[.]bsp', name, re.IGNORECASE)
         if not m:
             continue
         mapname = m.group(1).partition('_')[0]
         bsp = Bsp.Bsp()
-        bsp.bsp_file = z.open(name)
+        try:
+            bsp.bsp_file = z.open(name)
+        except zipfile.BadZipFile:
+            log('Bad zip file:', pak)
+            continue
         bsp.readLump('entities')
         lump = bsp.bsp_parser_dict["lump_dict"]["entities"]()
         wat = bsp.lump_dict["entities"]
@@ -43,9 +51,9 @@ for pak in paks:
             else:
                 log('No classname in entity in', pak, '-', m.group(0))
         for classname, count in ents.items():
-            entdir[classname].append((pak, mapname, count))
+            entdir[classname].append((mapname, count, pak))
 
-for classname, occurrences in entdir.items():
+for classname, occurrences in sorted(entdir.items()):
     print(classname)
-    for pak, mapname, count in occurrences:
+    for mapname, count, pak in sorted(occurrences):
         print('\t' + mapname, count, pak)
