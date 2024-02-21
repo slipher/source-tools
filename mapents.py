@@ -41,7 +41,7 @@ for pak in paks:
         ents = defaultdict(int)
         allattrs = defaultdict(set)
         while len(wat) > 1:
-            m = re.match(rb'\{\n("[^"]*" "[^"]*" *\n)*\}\n', wat)
+            m = re.match(rb'\{\n("[^"]*" "[^"]*" *\n)*\}\n*', wat)
             if not m:
                 log('Parsing entities from', pak, 'failed here:', repr(wat[:200]))
                 break
