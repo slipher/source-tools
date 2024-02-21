@@ -39,6 +39,7 @@ for pak in paks:
         lump = bsp.bsp_parser_dict["lump_dict"]["entities"]()
         wat = bsp.lump_dict["entities"]
         ents = defaultdict(int)
+        allattrs = defaultdict(set)
         while len(wat) > 1:
             m = re.match(rb'\{\n("[^"]*" "[^"]*" *\n)*\}\n', wat)
             if not m:
@@ -47,13 +48,15 @@ for pak in paks:
             wat = wat[m.end():]
             attrs = dict(re.findall(rb'"([^"]*)" "([^"]*)"', m.group(0)))
             if b"classname" in attrs:
-                ents[attrs[b"classname"].decode('ascii')] += 1
+                classname = attrs.pop(b"classname").decode('ascii')
+                ents[classname] += 1
+                allattrs[classname].update(attrs.keys())
             else:
                 log('No classname in entity in', pak, '-', m.group(0))
         for classname, count in ents.items():
-            entdir[classname].append((mapname, count, pak))
+            entdir[classname].append((mapname, count, pak, sorted(k.decode('ascii') for k in allattrs[classname])))
 
 for classname, occurrences in sorted(entdir.items()):
     print(classname)
-    for mapname, count, pak in sorted(occurrences):
-        print('\t' + mapname, count, pak)
+    for mapname, count, pak, attrs in sorted(occurrences):
+        print('\t' + mapname, count, pak, *attrs)
