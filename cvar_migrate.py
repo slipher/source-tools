@@ -92,13 +92,16 @@ def locline(myloc):
     file, line, _ = myloc
     return get_file(file)[line - 1]
 
-def handle_reference(cur, p):
+def handle_reference(cur, p, pp):
     if cur.kind != CursorKind.DECL_REF_EXPR:
         return False
-    if p.kind != CursorKind.MEMBER_REF_EXPR:
+    if p.kind == CursorKind.MEMBER_REF_EXPR:
+        member = p.referenced
+    elif pp.kind == CursorKind.MEMBER_REF_EXPR:
+        member = pp.referenced
+    else:
         return False
 
-    member = p.referenced
     assert member.kind == CursorKind.FIELD_DECL
     if member.spelling == 'integer':
         locmap[cur.spelling].int.add(my_loc(cur))
@@ -173,7 +176,7 @@ def handle_cvar_set(cur):
     loc[2] += 1
     cvarsets[get_source(var).strip('"').lower()].add((tuple(loc), get_source(val)))
 
-def f(cur, p=None):
+def f(cur, p=None, pp=None):
     if cur.type.spelling.endswith('::cvarTable_t') and cur.kind == CursorKind.INIT_LIST_EXPR:
         handle_table(cur)
     if get_kind(cur) == CursorKind.CALL_EXPR:
@@ -194,18 +197,20 @@ def f(cur, p=None):
             # NO_LINKAGE is local variables, don't want them
             locs = locmap[cur.spelling]
             (locs.defs if cur.is_definition() else locs.fw_decls).add(my_loc(cur))
-        elif handle_reference(cur, p):
+        elif handle_reference(cur, p, pp):
             pass
         elif handle_unary(cur):
             return
         # Things not about a *specific* cvar
         elif cur.kind in (CursorKind.FUNCTION_DECL, CursorKind.PARM_DECL, CursorKind.STRUCT_DECL, CursorKind.CALL_EXPR):
             pass
+        elif cur.kind == CursorKind.UNEXPOSED_EXPR:
+            pass # some annoying expression containing the name of a pointer to cvar
         else:
-            print('Unhandled thingy', cur.kind, get_file(cur.location.file.name)[cur.location.line-1])
+            print('Unhandled thingy', cur.kind, cur.spelling, get_file(cur.location.file.name)[cur.location.line-1])
 
     for child in cur.get_children():
-        f(child, cur)
+        f(child, cur, p)
 
 def clangcl_bad(a):
     return a in ('-TP', '/MP') or a.startswith('/F')
