@@ -54,6 +54,7 @@ class CvarLocs:
 
         self.fw_decls = set()
         self.defs = set()
+        self.gets = set()
         self.int = set()
         self.float = set()
         self.string = set()
@@ -65,7 +66,7 @@ class CvarLocs:
         self.default = set()
 
     def groups(self): # excluding text
-        return [self.fw_decls, self.defs, self.int, self.float, self.string, self.cvarsets, self.other]
+        return [self.fw_decls, self.defs, self.gets, self.int, self.float, self.string, self.cvarsets, self.other]
 
     def allgroups(self):
         return self.groups() + [self.table, self.text]
@@ -176,7 +177,29 @@ def handle_cvar_set(cur):
     loc[2] += 1
     cvarsets[get_source(var).strip('"').lower()].add((tuple(loc), get_source(val)))
 
+def handle_cvar_get(cur):
+    if cur.kind != CursorKind.BINARY_OPERATOR:
+        return False
+    left, right = cur.get_children()
+    if left.kind != CursorKind.DECL_REF_EXPR or left.type.spelling != 'cvar_t *':
+        return False
+    if right.kind != CursorKind.CALL_EXPR:
+        return False
+    func, *args = right.get_children()
+    if func.spelling != 'Cvar_Get':
+        return False
+    name, default, flags = args
+    locs = locmap[left.spelling]
+    m = re.match(r'^"([a-z]\w*)"$', get_source(name))
+    locs.name.add(m.group(1))
+    locs.default.add(get_source(default))
+    locs.flags.extend(map(str.strip, get_source(flags).split('|')))
+    locs.gets.add(my_loc(cur))
+    return True
+
 def f(cur, p=None, pp=None):
+    if handle_cvar_get(cur):
+        return
     if cur.type.spelling.endswith('::cvarTable_t') and cur.kind == CursorKind.INIT_LIST_EXPR:
         handle_table(cur)
     if get_kind(cur) == CursorKind.CALL_EXPR:
@@ -554,6 +577,8 @@ for name, locs in locmap.items():
         P('DECL')
     for loc in locs.defs:
         P('DEF ')
+    for loc in locs.gets:
+        P('GET ')
     for loc in locs.int:
         P('INT ')
     for loc in locs.float:
