@@ -59,10 +59,12 @@ class CvarLocs:
         self.float = set()
         self.string = set()
         self.cvarsets = set()
+        self.assertrange = set()
         self.other = set()
 
         self.name = set()
         self.flags = []
+        self.limits = []
         self.default = set()
 
     def groups(self): # excluding text
@@ -101,6 +103,9 @@ def handle_reference(cur, p, pp):
     elif pp.kind == CursorKind.MEMBER_REF_EXPR:
         member = pp.referenced
     else:
+        return False
+
+    if cur.get_definition() and cur.get_definition().linkage == cindex.LinkageKind.NO_LINKAGE:
         return False
 
     assert member.kind == CursorKind.FIELD_DECL
@@ -167,15 +172,32 @@ def get_kind(cur):
         return None
 
 cvarsets = collections.defaultdict(set)
-def handle_cvar_set(cur):
-    _, var, val = cur.get_children()
-    if var.kind == CursorKind.UNEXPOSED_EXPR:
-        var = next(iter(var.get_children()))
-    if var.kind != CursorKind.STRING_LITERAL:
-        return
-    loc = list(my_loc(var))
-    loc[2] += 1
-    cvarsets[get_source(var).strip('"').lower()].add((tuple(loc), get_source(val)))
+
+def handle_call_expr(cur):
+    if cur.kind != CursorKind.CALL_EXPR:
+        return False
+    try:
+        func, *args = cur.get_children()
+    except ValueError:
+        return False
+    if func.spelling in ('trap_Cvar_Set', 'Cvar_Set'):
+        var, val = args
+        if var.kind == CursorKind.UNEXPOSED_EXPR:
+            var = next(iter(var.get_children()))
+        if var.kind != CursorKind.STRING_LITERAL:
+            return False
+        loc = list(my_loc(var))
+        loc[2] += 1
+        cvarsets[get_source(var).strip('"').lower()].add((tuple(loc), get_source(val)))
+        return True
+    elif func.spelling == 'AssertCvarRange':
+        cv, lower, upper, _ = args
+        locs = locmap[cv.spelling]
+        locs.limits.append((get_source(lower), get_source(upper)))
+        locs.assertrange.add(my_loc(cur))
+        return True
+    else:
+        return False
 
 def handle_cvar_get(cur):
     if cur.kind != CursorKind.BINARY_OPERATOR:
@@ -199,6 +221,8 @@ def handle_cvar_get(cur):
 
 def f(cur, p=None, pp=None):
     if handle_cvar_get(cur):
+        return
+    if handle_call_expr(cur):
         return
     if cur.type.spelling.endswith('::cvarTable_t') and cur.kind == CursorKind.INIT_LIST_EXPR:
         handle_table(cur)
@@ -434,6 +458,8 @@ def check_usage(locs):
         return True
     elif 'CVAR_USERINFO' in locs.flags and any('src/sgame/' in f for f,_,_ in locs.text):
         return True
+    elif 'CVAR_SERVERINFO' in locs.flags or 'CVAR_ROM' in locs.flags:
+        return True
     elif locs.text:
         print('UU: probably')
     else:
@@ -453,26 +479,29 @@ def kill_cvar(locs):
 def translate_flags(flags):
     FLAGS = {
         '0': 'Cvar::NONE',
-        'CVAR_LATCH': 'Cvar::LATCH',
         'CVAR_CHEAT': 'Cvar::CHEAT',
         'CVAR_USERINFO': 'Cvar::USERINFO',
         'CVAR_SERVERINFO': 'Cvar::SERVERINFO',
     }
-    return ' | '.join(FLAGS.get(flag, f'<CVARTODO: {flag}>') for flag in flags)
+    return ' | '.join(FLAGS.get(flag, f'<CVARTODO: {flag}>')
+                      for flag in flags
+                      if flag != 'CVAR_LATCH')
 
 # g_foo.x, locs.x, Cvar<x>
 FLOAT = 'value', 'float', 'Cvar<float>'
+FLOATRANGE = 'value', 'float', 'Range<Cvar::Cvar<float>>'
 INT = 'integer', 'int', 'Cvar<int>'
 INTRANGE = 'integer', 'int', 'Range<Cvar::Cvar<int>>'
 BOOL = 'integer', 'int', 'Cvar<bool>'
 STRING = 'string', 'string', 'Cvar<std::string>'
 
 def guess_type(locs):
+    lim = locs.limits[0] if locs.limits else ()
     if locs.float:
-        return FLOAT
+        return (FLOATRANGE if locs.limits else FLOAT), lim
     if locs.int:
-        return INT
-    return STRING
+        return (INTRANGE if locs.limits else INT), lim
+    return STRING, ()
 
 def destringize(val, type):
     if type is not STRING:
@@ -487,6 +516,8 @@ def migration_patch(name, locs, type, desc, limits):
     patch = Patch()
     for f, line, _ in locs.table:
         patch.kill_line(f, line)
+    for f, line, _ in locs.assertrange:
+        patch.kill_line(f, line)
     for f, line, _ in locs.fw_decls:
         patch.replace_line(f, line, f'extern Cvar::{newtype} {name};')
     for f, line, _ in locs.defs:
@@ -497,7 +528,15 @@ def migration_patch(name, locs, type, desc, limits):
             default += f', {n}'
         defn = f'Cvar::{newtype} {name}("{name2}", "{desc}", {translate_flags(locs.flags)}, {default});'
         patch.replace_line(f, line, defn)
+    for f, line, _ in locs.gets:
+        if 'CVAR_LATCH' in locs.flags:
+            oldtext = get_file(f)[line-1]
+            indent = oldtext[:len(oldtext) - len(oldtext.lstrip())]
+            patch.replace_line(f, line, f'{indent}Cvar::Latch({name});')
+        else:
+            patch.kill_line(f, line)
     for (f, line, _), val in cvarsets[name2.lower()]:
+        # TODO SetValueForce for CVAR_ROM
         oldtext = get_file(f)[line-1]
         indent = oldtext[:len(oldtext) - len(oldtext.lstrip())]
         patch.replace_line(f, line, f'{indent}{name2}.Set({destringize(val, type)});')
@@ -506,17 +545,22 @@ def migration_patch(name, locs, type, desc, limits):
         get_expr += '.c_str()'
     for f, line in {loc[:2] for loc in group}:
         patch.replace_line(f, line, get_file(f)[line-1].replace(f'{name}.{accessor}', get_expr))
-    lines = {loc[:2] for g in locs.allgroups() if g is not group and g is not locs.fw_decls and g is not locs.defs and g is not locs.table and g is not locs.cvarsets for loc in g}
+    handled_groups = (group, locs.fw_decls, locs.defs, locs.table, locs.cvarsets, locs.gets, locs.assertrange)
+    lines = {loc[:2] for g in locs.allgroups()
+             if not any(g is h for h in handled_groups)
+             for loc in g}
     for f, line in lines:
         patch.mark_line(f, line)
     return patch
 
 def read_type():
     while True:
-        print(f'Choose cvar type [{Y}f{R}loat, {Y}i{R}nt, {Y}r{R}ange int, {Y}b{R}ool, {Y}s{R}tring]')
+        print(f'Choose cvar type [{Y}f{R}loat, flo{Y}a{R}t range, {Y}i{R}nt, {Y}r{R}ange int, {Y}b{R}ool, {Y}s{R}tring]')
         choice = input().lower()
         if choice == 'f':
             return FLOAT
+        if choice == 'a':
+            return FLOATRANGE
         if choice == 'i':
             return INT
         if choice == 'r':
@@ -527,7 +571,7 @@ def read_type():
             return STRING
 
 def migrate_cvar(name, locs):
-    type = guess_type(locs)
+    type, limits = guess_type(locs)
     if not locs.name or not locs.default:
         print(name + ' is missing stuff')
         return
@@ -535,7 +579,6 @@ def migrate_cvar(name, locs):
     patch.show()
     if not argv.p:
         return
-    limits = ()
     while True:
         print(f'migrate {name}? [{Y}y{R}es, {Y}n{R}o, change {Y}t{R}ype]')
         choice = input().lower()
@@ -545,7 +588,7 @@ def migrate_cvar(name, locs):
             break
         elif choice == 't':
             type = read_type()
-            if type is INTRANGE:
+            if type in (INTRANGE, FLOATRANGE):
                 limits = input('Min: '), input('Max: ')
             else:
                 limits = ()
@@ -589,6 +632,8 @@ for name, locs in locmap.items():
         P('TAB ')
     for loc in locs.cvarsets:
         P('SET ')
+    for loc  in locs.assertrange:
+        P('RANGE')
     for loc in locs.other:
         P('OTHER')
     for loc in locs.text:
