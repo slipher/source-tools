@@ -1,0 +1,3 @@
+match unaryOperator(hasOperatorName("&"), hasDescendant(
+    cxxOperatorCallExpr(hasOverloadedOperatorName("[]"), hasDescendant(
+        expr(hasType(hasDeclaration(typedefNameDecl(hasName("vec3")))))))))
