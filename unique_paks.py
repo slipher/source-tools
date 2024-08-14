@@ -28,7 +28,8 @@ for pak in paks:
     z.close()
 
     f = open(pak, 'rb')
-    md5 = hashlib.file_digest(f, "md5")
+    # md5 = hashlib.file_digest(f, "md5") # requires 3.11
+    md5 = hashlib.md5(f.read())
     f.close()
     hashdir[md5.hexdigest()].append(pak)
 
