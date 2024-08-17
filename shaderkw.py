@@ -15,10 +15,15 @@ log = lambda *a: print(*a, file=sys.stderr)
 
 paks = []
 for path in sys.argv[1:]:
-    for dirname, _, basenames in os.walk(path):
-        for basename in basenames:
-            if basename[-4:].lower() in ('.pk3', '.dpk'):
-                paks.append(os.path.join(dirname, basename))
+    if os.path.isdir(path):
+        for dirname, _, basenames in os.walk(path):
+            for basename in basenames:
+                if basename[-4:].lower() in ('.pk3', '.dpk'):
+                    paks.append(os.path.join(dirname, basename))
+    else:
+        with open(path) as f:
+            for line in f:
+                paks.append(line.strip('\n'))
 log('Searching', len(paks), 'paks')
 
 kwdir = defaultdict(list)
