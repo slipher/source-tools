@@ -28,7 +28,7 @@ def check(name, path, cmake, ignore, **substs):
 
 check('Unvanquished', UNV + '/src', UNV + '/src.cmake', ['sgame/components/skeletons/', 'utils/cbse/templates/', 'sgame/backend/'], GAMELOGIC_DIR=UNV+'/src')
 check('generated CBSE', UNV + '/src/sgame/backend', DAEMON + '/cmake/DaemonCBSE.cmake', [], output=UNV+'/src/sgame')
-check('librocket', UNV + '/libs/libRocket', UNV + '/libRocket.cmake', [], LIBROCKET_DIR=UNV+'/libs/libRocket')
+check('rmlui', UNV + '/libs/RmlUi/Include', UNV + '/rmlui.cmake', [], LIBROCKET_DIR=UNV+'/libs/RmlUi')
 check('Daemon', DAEMON + '/src', DAEMON + '/src.cmake', [],
       COMMON_DIR=DAEMON+'/src/common', ENGINE_DIR=DAEMON+'/src/engine', MOUNT_DIR=DAEMON+'/src')
 # check('Daemon libs', DAEMON + '/libs', DAEMON + '/srclibs.cmake', LIB_DIR=DAEMON+'/libs')
