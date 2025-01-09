@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Makes a directory of which shader keywords are used by which shader files.
+"""Makes a directory of which shader/particle/trail keywords are used by which files.
 
 Note: the "parser" is very simplistic. It detects some things as keywords which aren't,
-such as the state string which follows the `when` keyword.
+such as single-word shader names referenced in particle files.
 """
 
 from collections import defaultdict
@@ -13,8 +13,11 @@ import zipfile
 
 log = lambda *a: print(*a, file=sys.stderr)
 
+thing = sys.argv[1]
+assert thing in ('shader', 'particle', 'trail')
+
 paks = []
-for path in sys.argv[1:]:
+for path in sys.argv[2:]:
     if os.path.isdir(path):
         for dirname, _, basenames in os.walk(path):
             for basename in basenames:
@@ -35,7 +38,7 @@ for pak in paks:
         log("Couldn't open", pak)
         continue
     for name in z.namelist():
-        m = re.fullmatch(r'scripts/.*[.]shader', name, re.IGNORECASE)
+        m = re.fullmatch(r'scripts/.*[.]' + thing, name, re.IGNORECASE)
         if not m:
             continue
         try:
