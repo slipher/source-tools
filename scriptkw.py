@@ -51,7 +51,7 @@ for pak in paks:
         text = re.sub(rb'//.*|/[*][.\n]*[*]/', b'', text)
         kws = defaultdict(int)
         blevel = 0
-        for token in re.findall(rb'[{}]|[^\s{}]+/[^\s{}]+|[a-zA-Z]\w*', text):
+        for token in re.findall(rb'[{}]|[^\s{}]+[/\\][^\s{}]+|[a-zA-Z]\w*', text):
             if token == b'{':
                 blevel += 1
             elif token == b'}':
@@ -59,7 +59,7 @@ for pak in paks:
                     log('Unexpected closing brace', pak, name)
                 else:
                     blevel -= 1
-            elif blevel and len(token) > 1 and b'/' not in token:
+            elif blevel and len(token) > 1 and b'/' not in token and b'\\' not in token:
                 kws[token.lower().decode('utf8')] += 1
         if blevel != 0:
             log('Unclosed brace', pak, name)
