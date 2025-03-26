@@ -309,6 +309,8 @@ for tu in tus:
 def all_sources(srcs):
     src_dirs = set()
     for f in srcs:
+        if 'DaemonBuildInfo' in f:
+            continue
         root = f[:f.rindex('src/')]
         src_dirs.add(root + 'src')
         if (not argv.m) and os.path.exists(root + 'pkg'):
