@@ -485,7 +485,7 @@ def translate_flags(flags):
     }
     return ' | '.join(FLAGS.get(flag, f'<CVARTODO: {flag}>')
                       for flag in flags
-                      if flag != 'CVAR_LATCH')
+                      if flag != 'CVAR_LATCH') or 'Cvar::NONE'
 
 # g_foo.x, locs.x, Cvar<x>
 FLOAT = 'value', 'float', 'Cvar<float>'
