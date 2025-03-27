@@ -546,7 +546,10 @@ def migration_patch(name, locs, type, desc, limits):
     if type is STRING:
         get_expr += '.c_str()'
     for f, line in {loc[:2] for loc in group}:
-        patch.replace_line(f, line, get_file(f)[line-1].replace(f'{name}.{accessor}', get_expr))
+        text = get_file(f)[line-1]
+        text = text.replace(f'{name}.{accessor}', get_expr)
+        text = text.replace(f'{name}->{accessor}', get_expr)
+        patch.replace_line(f, line, text)
     handled_groups = (group, locs.fw_decls, locs.defs, locs.table, locs.cvarsets, locs.gets, locs.assertrange)
     lines = {loc[:2] for g in locs.allgroups()
              if not any(g is h for h in handled_groups)
