@@ -430,9 +430,29 @@ class Patch:
         try:
             self.show(file=tf)
             tf.close()
-            if edit:
-                subprocess.check_call([editor, tf.name])
-            subprocess.check_call(['git', 'apply', '-p0', '--unsafe-paths', tf.name])
+            cmd = ['git', 'apply', '-p0', '--unsafe-paths', tf.name]
+            if not edit:
+                subprocess.check_call(cmd)
+                return
+            while True:
+                try:
+                    subprocess.check_call([editor, tf.name])
+                finally:
+                    # BLACK MAGIC: on Windows 10 colorama stops working after executing Vim;
+                    # it just prints out the ANSI codes unmodified. But doing this makes it work again
+                    os.system('color')
+                try:
+                    subprocess.check_call(['git', 'apply', '-p0', '--unsafe-paths', tf.name])
+                except subprocess.CalledProcessError:
+                    while True:
+                        print(f'Re-edit failed patch? [{Y}y{R}es, {Y}n{R}o]')
+                        choice = input().lower()
+                        if choice == 'y':
+                            break
+                        elif choice == 'n':
+                            raise
+                else:
+                    return
         finally:
             tf.close()
             os.unlink(tf.name)
