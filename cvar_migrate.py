@@ -503,7 +503,9 @@ def translate_flags(flags):
         '0': 'Cvar::NONE',
         'CVAR_CHEAT': 'Cvar::CHEAT',
         'CVAR_USERINFO': 'Cvar::USERINFO',
+        'CVAR_ROM': 'Cvar::ROM',
         'CVAR_SERVERINFO': 'Cvar::SERVERINFO',
+        'CVAR_SYSTEMINFO': 'Cvar::SYSTEMINFO',
     }
     return ' | '.join(FLAGS.get(flag, f'<CVARTODO: {flag}>')
                       for flag in flags
@@ -558,10 +560,12 @@ def migration_patch(name, locs, type, desc, limits):
         else:
             patch.kill_line(f, line)
     for (f, line, _), val in cvarsets[name2.lower()]:
-        # TODO SetValueForce for CVAR_ROM
         oldtext = get_file(f)[line-1]
         indent = oldtext[:len(oldtext) - len(oldtext.lstrip())]
-        patch.replace_line(f, line, f'{indent}{name2}.Set({destringize(val, type)});')
+        if 'CVAR_ROM' in locs.flags:
+            patch.replace_line(f, line, f'{indent}Cvar::SetValueForce( "{name}", {val} );')
+        else:
+            patch.replace_line(f, line, f'{indent}{name2}.Set( {destringize(val, type)} );')
     get_expr = name + '.Get()'
     if type is STRING:
         get_expr += '.c_str()'
