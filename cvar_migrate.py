@@ -393,9 +393,9 @@ class Patch:
     def mark_line(self, f, orig_line):
         i = self.find_line(f, orig_line)
         if i is None:
-            print('Warning: failed to replace line ' + repr(orig_line))
+            print('Warning: failed to mark line ' + repr(orig_line))
             return
-        self.files[f][i] = '\uBEEF'
+        self.files[f][i] = '\uBEEF' + self.files[f][i]
 
     def color_diff_line(self, line):
         if line.startswith('+++') or line.startswith('---'):
@@ -416,10 +416,11 @@ class Patch:
             i = 0
             while i < len(diff):
                 line = diff[i]
-                # won't work if there is more than 1 marked line in a block
-                if line.startswith('-') and diff[i+1] == '+\uBEEF':
-                    line = '*' + line[1:]
-                    i += 1
+                if line.startswith('-'):
+                    beef = '+\uBEEF' + line[1:]
+                    if beef in diff[i+1:i+9]:
+                        line = '*' + line[1:]
+                        del diff[diff.index(beef, i+1)]
                 if not file:
                     line = self.color_diff_line(line)
                 print(line, file=file)
