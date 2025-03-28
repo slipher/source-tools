@@ -564,9 +564,9 @@ def migration_patch(name, locs, type, desc, limits):
         oldtext = get_file(f)[line-1]
         indent = oldtext[:len(oldtext) - len(oldtext.lstrip())]
         if 'CVAR_ROM' in locs.flags:
-            patch.replace_line(f, line, f'{indent}Cvar::SetValueForce( "{name}", {val} );')
+            patch.replace_line(f, line, f'{indent}Cvar::SetValueForce( "{name2}", {val} );')
         else:
-            patch.replace_line(f, line, f'{indent}{name2}.Set( {destringize(val, type)} );')
+            patch.replace_line(f, line, f'{indent}{name}.Set( {destringize(val, type)} );')
     get_expr = name + '.Get()'
     if type is STRING:
         get_expr += '.c_str()'
