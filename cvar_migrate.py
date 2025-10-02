@@ -7,7 +7,7 @@
 #   - python3 -m pip install libclang (there's also a "clang" package with the same modules; not sure how it's different)
 # - Create compilation db with clang-cl:
 #   - Open "x64 Native Tools Command Prompt for VS 2019"
-#   - Run cmake with options -G Ninja -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DUSE_PRECOMPILED_HEADER=0 -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+#   - Run cmake with options -G Ninja -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DUSE_PRECOMPILED_HEADER=0 -DCMAKE_EXPORT_COMPILE_COMMANDS=1 -DRMLUI_UNITY_BUILD=0
 # - Run the Ninja build (semi-optional, there are just a few files which depend on generated files)
 # - Run this script in a normal command prompt
 
@@ -309,7 +309,7 @@ for tu in tus:
 def all_sources(srcs):
     src_dirs = set()
     for f in srcs:
-        if 'DaemonBuildInfo' in f:
+        if '/GeneratedSource/' in f:
             continue
         root = f[:f.rindex('src/')]
         src_dirs.add(root + 'src')
