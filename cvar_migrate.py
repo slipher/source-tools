@@ -448,7 +448,8 @@ class Patch:
                 finally:
                     # BLACK MAGIC: on Windows 10 colorama stops working after executing Vim;
                     # it just prints out the ANSI codes unmodified. But doing this makes it work again
-                    os.system('color')
+                    if sys.platform == 'win32':
+                        os.system('color')
                 try:
                     subprocess.check_call(['git', 'apply', '-p0', '--unsafe-paths', tf.name])
                 except subprocess.CalledProcessError:
