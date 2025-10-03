@@ -130,7 +130,7 @@ def handle_unary(cur):
     if list(operand.get_children()):
         return False
     tok, = operand.get_tokens()
-    m = re.match('^[a-z]\w*$', tok.spelling)
+    m = re.match(r'^[a-z]\w*$', tok.spelling)
     if not m:
         return False
     locmap[m.group(0)].other.add(my_loc(cur))
