@@ -29,11 +29,18 @@ from clang.cindex import CursorKind
 Y = colorama.Fore.YELLOW
 R = colorama.Fore.RESET
 
+if sys.platform == 'win32':
+    def_editor = 'C:/Program Files/Git/usr/bin/vim.exe'
+    def_compdb = 'C:/unv/st/spm'
+else:
+    def_editor = 'vim'
+    def_compdb = '/unv/Unvanquished/build/compdb'
+
 sys.stdout.reconfigure(encoding='utf-8')
 colorama.init()
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-b', type=str, help='build directory (with comp db)', default='C:/unv/st/spm')
+parser.add_argument('-b', type=str, help='build directory (with comp db)', default=def_compdb)
 parser.add_argument('-f', type=str, help='substring to match translation unit filename', default='')
 parser.add_argument('-j', type=int, help='compiler threads', default=6)
 parser.add_argument('-v', type=str, help='substring for cvars to match', default='')
@@ -42,7 +49,7 @@ parser.add_argument('-p', action='store_true', help='interactively apply patches
 parser.add_argument('-m', action='store_true', help='migrate cvar instead of deleting unused')
 argv = parser.parse_args()
 argv.v = argv.v.lower()
-editor = os.getenv('EDITOR', 'C:/Program Files/Git/usr/bin/vim.exe')
+editor = os.getenv('EDITOR', def_editor)
 
 cdb = cindex.CompilationDatabase.fromDirectory(argv.b)
 index = cindex.Index.create()
