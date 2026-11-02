@@ -1,28 +1,8 @@
 set bind-root false
-set traversal IgnoreUnlessSpelledInSource
-
-let NonRefStrType hasUnqualifiedDesugaredType(
-    recordType(hasDeclaration(cxxRecordDecl(anyOf(
-        hasName("::Str::BasicStringRef"),
-        hasName("::std::basic_string")
-    ))))
-)
-
-let RefStrType references(hasUnqualifiedDesugaredType(
-    recordType(hasDeclaration(cxxRecordDecl(hasName("::std::basic_string"))))
-))
 
 let CStrCall cxxMemberCallExpr(
     callee(cxxMethodDecl(hasName("c_str")))
 ).bind("useless c_str call")
-
-let CStrAsStringArg forEachArgumentWithParamType(
-    CStrCall,
-    anyOf(
-        RefStrType,
-        qualType(NonRefStrType)
-    )
-)
 
 # Handle format inserts for the tinyformat-based printf-style functions
 let FormatCallWithCStrArg callExpr(
@@ -56,10 +36,19 @@ let FormatCallWithCStrArg callExpr(
     )
 )
 
-match expr(anyOf(
-    callExpr(CStrAsStringArg),
-    cxxConstructExpr(CStrAsStringArg),
-    FormatCallWithCStrArg
-))
+# Match constructors of StringRef/string taking a single arg which is a c_str() expr
+# (usually due to implicit conversion when passing a function argument)
+let StringConstrucorFromCStr cxxConstructExpr(
+    unless(isExpansionInSystemHeader()),
+    hasDeclaration(cxxConstructorDecl(ofClass(anyOf(
+        hasName("::Str::BasicStringRef"),
+        hasName("::std::basic_string")
+    )))),
+    argumentCountIs(1),
+    has(CStrCall)
+)
 
-set traversal AsIs
+match expr(anyOf(
+    FormatCallWithCStrArg,
+    StringConstrucorFromCStr
+))

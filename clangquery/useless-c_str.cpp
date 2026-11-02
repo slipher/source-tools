@@ -11,9 +11,7 @@ void UselessCStr()
     void f2(Str::StringRef);
     f2(str.c_str()); //!
 
-    // TODO: in constructor of string or stringref
-    // std::string s(std::string().c_str());
-    // f1(str.c_str());
+    std::string s(std::string().c_str()); //!
 
     Log::Notice(str.c_str()); //!
 
