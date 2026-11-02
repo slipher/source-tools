@@ -1,0 +1,65 @@
+set bind-root false
+set traversal IgnoreUnlessSpelledInSource
+
+let NonRefStrType hasUnqualifiedDesugaredType(
+    recordType(hasDeclaration(cxxRecordDecl(anyOf(
+        hasName("::Str::BasicStringRef"),
+        hasName("::std::basic_string")
+    ))))
+)
+
+let RefStrType references(hasUnqualifiedDesugaredType(
+    recordType(hasDeclaration(cxxRecordDecl(hasName("::std::basic_string"))))
+))
+
+let CStrCall cxxMemberCallExpr(
+    callee(cxxMethodDecl(hasName("c_str")))
+).bind("useless c_str call")
+
+let CStrAsStringArg forEachArgumentWithParamType(
+    CStrCall,
+    anyOf(
+        RefStrType,
+        qualType(NonRefStrType)
+    )
+)
+
+# Handle format inserts for the tinyformat-based printf-style functions
+let FormatCallWithCStrArg callExpr(
+    allOf(
+        # Variadic format functions
+        callee(anyOf(
+            functionDecl(anyOf(
+                hasName("::Str::Format"),
+                hasName("::Log::Debug"),
+                hasName("::Log::Verbose"),
+                hasName("::Log::Notice"),
+                hasName("::Log::Warn"),
+                hasName("::Sys::Drop"),
+                hasName("::Sys::Error")
+            )),
+            cxxMethodDecl(anyOf(
+                # Log::Logger
+                hasName("DebugExt"),
+                hasName("VerboseExt"),
+                hasName("NoticeExt"),
+                hasName("WarnExt"),
+                # Cmd::BaseCmd
+                hasName("Print")
+            ))
+        )),
+        forEachArgumentWithParam(
+            CStrCall,
+            # Only match the template-typed (const T&...) parms
+            parmVarDecl(hasType(references(type(substTemplateTypeParmType()))))
+        )
+    )
+)
+
+match expr(anyOf(
+    callExpr(CStrAsStringArg),
+    cxxConstructExpr(CStrAsStringArg),
+    FormatCallWithCStrArg
+))
+
+set traversal AsIs

@@ -6,6 +6,7 @@ import os
 import subprocess
 
 DIR = os.path.dirname(__file__)
+DAEMON_DIR = DIR + "/../../Unvanquished/daemon"
 
 def TestQuery(name):
     success = True
@@ -19,6 +20,9 @@ def TestQuery(name):
         expected = [i+1 for i,ln in enumerate(content) if "//!" in ln]
     out = subprocess.check_output(["clang-query",
                                    "--extra-arg=-fno-diagnostics-color",
+                                   "--extra-arg=-I" + DIR,
+                                   "--extra-arg=-I" + DAEMON_DIR + "/src",
+                                   "--extra-arg=-I" + DAEMON_DIR + "/libs",
                                    "-p", DIR,
                                    "-f", query,
                                    cpp],
@@ -45,3 +49,4 @@ def TestQuery(name):
     return success
 
 TestQuery("glm-indexing-ub")
+TestQuery("useless-c_str")
