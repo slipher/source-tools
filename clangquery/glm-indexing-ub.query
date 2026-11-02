@@ -1,0 +1,6 @@
+set bind-root false
+
+match unaryOperator(hasOperatorName("&"), hasDescendant(
+    cxxOperatorCallExpr(hasOverloadedOperatorName("[]"), hasDescendant(
+        expr(hasType(hasDeclaration(typedefNameDecl(hasName("vec3"))))))))
+).bind("use of GLM vector as float array invoking undefined behavior")
